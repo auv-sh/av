@@ -6,7 +6,7 @@ set -eu
 
 # ----------------------- Configurable knobs -----------------------
 # Override via env when needed
-AV_REPO_SLUG="${AV_INSTALL_REPO:-${AV_REPO_SLUG:-guang/av}}"  # owner/repo
+AV_REPO_SLUG="${AV_INSTALL_REPO:-${AV_REPO_SLUG:-auv-sh/av}}"  # owner/repo
 AV_VERSION="${AV_VERSION:-latest}"                             # e.g. v0.1.0 or latest
 AV_BIN_NAME="av"
 AV_TOKEN="${AV_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"              # optional for private rate limits
