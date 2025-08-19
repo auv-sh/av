@@ -4,7 +4,8 @@ use reqwest::header::{HeaderMap, HeaderValue, HeaderName, ACCEPT, ACCEPT_LANGUAG
 use scraper::{Html, Selector};
 use urlencoding::encode;
 
-use crate::types::{AvDetail, AvItem, MagnetInfo};
+use crate::types::{AvDetail, AvItem, MagnetInfo, ActorItem};
+use std::collections::HashMap;
 use crate::sources::{dmm, javlibrary};
 use crate::util;
 
@@ -651,6 +652,85 @@ async fn list_actor_javdb(actor: &str) -> Result<Vec<AvItem>> {
 
 async fn list_actor_sukebei(actor: &str) -> Result<Vec<AvItem>> {
     search_sukebei(actor).await
+}
+
+pub async fn actors(page: usize, per_page: usize, uncensored_only: bool) -> Result<(Vec<ActorItem>, usize)> {
+    // Prefer uncensored actors grid when requested
+    let c = client();
+    let endpoints = if uncensored_only {
+        vec![format!("{}/actors/uncensored?page={}", javdb_base(), page)]
+    } else {
+        vec![
+            format!("{}/actors?o=tr&page={}", javdb_base(), page),
+            format!("{}/rankings/actors?period=w&page={}", javdb_base(), page),
+            format!("{}/rankings/actors?period=m&page={}", javdb_base(), page),
+        ]
+    };
+    let mut all: Vec<ActorItem> = Vec::new();
+    let mut total_pages: Option<usize> = None;
+
+    for url in &endpoints {
+        util::debug(format!("JavDB actors page: {}", url));
+        let resp = c.get(url).send().await?;
+        if !resp.status().is_success() { continue; }
+        let body = resp.text().await?;
+        let doc = Html::parse_document(&body);
+
+        // Estimate total pages
+        if total_pages.is_none() {
+            let pages = doc
+                .select(&Selector::parse(".pagination-list a.pagination-link").unwrap())
+                .filter_map(|n| n.text().collect::<String>().trim().parse::<usize>().ok())
+                .max();
+            if let Some(p) = pages { total_pages = Some(p); }
+        }
+
+        // Prefer the actors grid structure: #actors .actor-box a strong
+        let grid_sel = Selector::parse("#actors .actor-box a, .actors .actor-box a").unwrap();
+        let strong_sel = Selector::parse("strong").unwrap();
+        let mut grid: Vec<ActorItem> = Vec::new();
+        for (idx, a) in doc.select(&grid_sel).enumerate() {
+            let name_strong = a.select(&strong_sel).next().map(|n| n.text().collect::<String>().trim().to_string());
+            let title_attr = a.value().attr("title").map(|s| s.to_string());
+            // Some title has multiple names separated by comma; pick first
+            let name_from_title = title_attr.clone().and_then(|t| t.split(',').next().map(|s| s.trim().to_string()));
+            let name = name_strong.filter(|s| !s.is_empty()).or(name_from_title).unwrap_or_default();
+            if name.is_empty() { continue; }
+            // If no explicit hot metric, use order (descending)
+            let hot_rank = (per_page as i64 - idx as i64).max(1) as u32;
+            grid.push(ActorItem { name, hot: hot_rank });
+        }
+        if !grid.is_empty() {
+            // apply per_page limit locally
+            let mut limited = grid;
+            if limited.len() > per_page { limited.truncate(per_page); }
+            all = limited;
+            break;
+        }
+
+        // Fallback: anchors-based heuristic (older layout)
+        let a_sel = Selector::parse("a[href^='/actors/']").unwrap();
+        let mut seen: HashMap<String, u32> = HashMap::new();
+        for (idx, a) in doc.select(&a_sel).enumerate() {
+            let name = a.text().collect::<String>().trim().to_string();
+            if name.is_empty() { continue; }
+            let hot_rank = (per_page as i64 - idx as i64).max(1) as u32;
+            let entry = seen.entry(name).or_insert(0);
+            if hot_rank > *entry { *entry = hot_rank; }
+        }
+        if !seen.is_empty() {
+            let mut v = seen.into_iter().map(|(name, hot)| ActorItem { name, hot }).collect::<Vec<_>>();
+            v.sort_by(|a, b| b.hot.cmp(&a.hot).then_with(|| a.name.cmp(&b.name)));
+            all = v;
+            break;
+        }
+    }
+
+    // Fallback: return empty with total estimation if none found
+    let total_pages = total_pages.unwrap_or(page);
+    // If we have items count for this page, approximate total items
+    let total_items = total_pages * per_page;
+    Ok((all, total_items))
 }
 
 fn extract_code_from_title(title: &str) -> Option<String> {

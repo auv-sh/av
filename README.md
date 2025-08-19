@@ -62,6 +62,10 @@ av search 三上悠亞 --uncen
 av list 橋本ありな -u
 av top --limit 30 --uncen
 
+# Actors ranking (with pagination)
+av actors --page 1 -n 50
+av actors --uncen --page 3 -n 30
+
 # Download (alias of install: get)
 av get FSDSS-351
 ```
@@ -109,6 +113,17 @@ av top [--limit N] [--json]
 - Lists latest titles from JavDB (most recent first); defaults to 20 items
 - Respects `AV_JAVDB_BASE` / `AV_HTTP_PROXY` / `AV_JAVDB_COOKIE`
 - Supports uncensored-only filter: `--uncen` (alias `-u`)
+
+### Actors (ranking)
+
+```bash
+av actors [--page N] [--per-page N|-n N] [--uncen] [--json]
+```
+
+- Lists actors ranked by trending/hotness; supports pagination
+- `--uncen/-u`: lists uncensored actors from `actors/uncensored?page=N`
+- Output: table with index, actor name, hot value; top shows total and current page
+- Respects `AV_JAVDB_BASE` / `AV_HTTP_PROXY` / `AV_JAVDB_COOKIE`
 
 ### Install / Get
 

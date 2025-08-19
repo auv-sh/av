@@ -40,3 +40,9 @@ pub struct MagnetInfo {
     pub avg_bitrate_mbps: Option<f32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActorItem {
+    pub name: String,
+    pub hot: u32,
+}
+

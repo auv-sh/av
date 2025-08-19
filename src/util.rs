@@ -6,6 +6,7 @@ use which::which;
 
 use crate::types::AvItem;
 use crate::types::AvDetail;
+use crate::types::ActorItem;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -201,6 +202,34 @@ pub fn print_detail_human(detail: &AvDetail) {
             if let Some(lc) = m.leechers { line.push_str(&format!(" L:{}", lc)); }
             println!("{}", line);
         }
+    }
+}
+
+pub fn print_actors_table(actors: &[ActorItem], page: usize, per_page: usize, total: usize) {
+    println!("{} {} (page {} / {}):", "Total".bold(), total, page, ((total + per_page - 1) / per_page));
+    let index_header = "#";
+    let name_header = "演员";
+    let hot_header = "热度";
+    let index_width = std::cmp::max(index_header.len(), format!("{}", actors.len()).len());
+    let name_width = std::cmp::max(name_header.len(), actors.iter().map(|a| a.name.len()).max().unwrap_or(0));
+    println!(
+        "{:<iw$}  {:<nw$}  {}",
+        index_header.bold(),
+        name_header.bold(),
+        hot_header.bold(),
+        iw = index_width,
+        nw = name_width
+    );
+    println!(
+        "{:<iw$}  {:<nw$}  {}",
+        "-".repeat(index_width),
+        "-".repeat(name_width),
+        "-".repeat(6),
+        iw = index_width,
+        nw = name_width
+    );
+    for (i, a) in actors.iter().enumerate() {
+        println!("{:<iw$}  {:<nw$}  {}", i + 1 + (page - 1) * per_page, a.name, a.hot, iw = index_width, nw = name_width);
     }
 }
 

@@ -42,6 +42,9 @@ enum Commands {
 
     /// 查看最新的番（默认 20 条）
     Top { #[arg(short, long, default_value_t = 20)] limit: usize },
+
+    /// 演员热度排行榜（分页）
+    Actors { #[arg(short, long, default_value_t = 1)] page: usize, #[arg(short='n', long, default_value_t = 50)] per_page: usize },
 }
 
 #[tokio::main]
@@ -105,6 +108,15 @@ async fn main() -> Result<()> {
                 util::print_output(&items, true);
             } else {
                 util::print_items_table(&items);
+            }
+            Ok(())
+        }
+        Commands::Actors { page, per_page } => {
+            let (actors, total) = scraper::actors(page, per_page, cli.uncen).await?;
+            if cli.json {
+                util::print_output(&(actors, total), true);
+            } else {
+                util::print_actors_table(&actors, page, per_page, total);
             }
             Ok(())
         }
