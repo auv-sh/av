@@ -17,7 +17,7 @@ An extremely handy AV search and downloader, written in Rust.
 One-line install (from Releases):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/auv-sh/av/master/install.sh | sh
+curl -fsSL https://raw.github.com/auv-sh/av/master/install.sh | sh
 ```
 
 Build from source（需要 Rust 稳定版工具链）：
