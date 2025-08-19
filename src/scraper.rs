@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
 use regex::Regex;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, HeaderName, ACCEPT, ACCEPT_LANGUAGE, REFERER, USER_AGENT};
 use scraper::{Html, Selector};
 use urlencoding::encode;
 
 use crate::types::{AvDetail, AvItem, MagnetInfo};
+use crate::sources::{dmm, javlibrary};
+use crate::util;
 
 const UA: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
@@ -12,22 +14,77 @@ const UA: &str =
 fn default_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_static(UA));
+    headers.insert(ACCEPT, HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"));
+    headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9,ja;q=0.8,zh-CN;q=0.7"));
+    let referer = format!("{}/", javdb_base());
+    if let Ok(hv) = HeaderValue::from_str(&referer) { headers.insert(REFERER, hv); }
+    if let Some(cookie) = std::env::var("AV_JAVDB_COOKIE").ok() {
+        let name = HeaderName::from_static("cookie");
+        if let Ok(val) = HeaderValue::from_str(cookie.trim()) {
+            headers.insert(name, val);
+        }
+    }
     headers
 }
 
 fn client() -> reqwest::Client {
-    reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .default_headers(default_headers())
         .redirect(reqwest::redirect::Policy::limited(10))
         .cookie_store(true)
-        .build()
-        .expect("client build")
+        ;
+    if let Some(proxy) = std::env::var("AV_HTTP_PROXY").ok() {
+        if let Ok(px) = reqwest::Proxy::all(proxy) { builder = builder.proxy(px); }
+    }
+    builder.build().expect("client build")
+}
+
+fn javdb_base() -> String {
+    std::env::var("AV_JAVDB_BASE").unwrap_or_else(|_| "https://javdb.com".to_string())
 }
 
 pub async fn fetch_detail(code: &str) -> Result<AvDetail> {
-    // Use javdb mirrored search as primary, fallback to sukebei
+    // Prefer JavDB native scraping by default; DMM is opt-in via env AV_USE_DMM=1
     let code_upper = code.to_uppercase();
+    util::debug(format!("fetch_detail start for {}", code_upper));
+    if std::env::var("AV_USE_DMM").ok().as_deref() == Some("1") && dmm::dmm_enabled() {
+        if let Some(mut d) = dmm::fetch_detail_from_dmm(&code_upper).await? {
+            util::debug("DMM hit");
+            // Merge with JavDB for plot/actors/cover fallback
+            if let Ok(j) = fetch_detail_from_javdb(&code_upper).await {
+                util::debug("Merging with JavDB after DMM");
+                if d.plot.is_none() && j.plot.is_some() { d.plot = j.plot; }
+                if d.actor_names.is_empty() && !j.actor_names.is_empty() { d.actor_names = j.actor_names; }
+                if d.cover_url.is_none() && j.cover_url.is_some() { d.cover_url = j.cover_url; }
+                // Prefer DMM release_date/duration if present; else copy from JavDB
+                if d.release_date.is_none() { d.release_date = j.release_date; }
+                if d.duration_minutes.is_none() { d.duration_minutes = j.duration_minutes; }
+            }
+            // Always merge magnets from Sukebei
+            if let Ok(s) = fetch_detail_from_sukebei(&code_upper).await {
+                if d.magnets.is_empty() { d.magnets = s.magnets; }
+                if d.magnet_infos.is_empty() { d.magnet_infos = s.magnet_infos; }
+            }
+            return Ok(d);
+        }
+    }
     if let Ok(mut detail) = fetch_detail_from_javdb(&code_upper).await {
+        util::debug("JavDB hit");
+        // Merge extra metadata from JavLibrary even when JavDB succeeds
+        if let Ok(Some(jl)) = javlibrary::fetch_detail_from_javlibrary(&code_upper).await {
+            util::debug("Merging with JavLibrary after JavDB");
+            if detail.plot.is_none() && jl.plot.is_some() { detail.plot = jl.plot; }
+            if detail.actor_names.is_empty() && !jl.actor_names.is_empty() { detail.actor_names = jl.actor_names; }
+            if detail.release_date.is_none() && jl.release_date.is_some() { detail.release_date = jl.release_date; }
+            if detail.cover_url.is_none() && jl.cover_url.is_some() { detail.cover_url = jl.cover_url; }
+            if detail.duration_minutes.is_none() && jl.duration_minutes.is_some() { detail.duration_minutes = jl.duration_minutes; }
+            if detail.director.is_none() && jl.director.is_some() { detail.director = jl.director; }
+            if detail.studio.is_none() && jl.studio.is_some() { detail.studio = jl.studio; }
+            if detail.label.is_none() && jl.label.is_some() { detail.label = jl.label; }
+            if detail.series.is_none() && jl.series.is_some() { detail.series = jl.series; }
+            if detail.genres.is_empty() && !jl.genres.is_empty() { detail.genres = jl.genres; }
+            if detail.preview_images.is_empty() && !jl.preview_images.is_empty() { detail.preview_images = jl.preview_images; }
+        }
         if detail.magnets.is_empty() {
             if let Ok(s_detail) = fetch_detail_from_sukebei(&code_upper).await {
                 if !s_detail.magnets.is_empty() {
@@ -37,6 +94,16 @@ pub async fn fetch_detail(code: &str) -> Result<AvDetail> {
         }
         return Ok(detail);
     }
+    // Try JavLibrary
+    if let Ok(Some(mut jl)) = javlibrary::fetch_detail_from_javlibrary(&code_upper).await {
+        util::debug("JavLibrary hit (fallback)");
+        if let Ok(s) = fetch_detail_from_sukebei(&code_upper).await {
+            if jl.magnets.is_empty() { jl.magnets = s.magnets; }
+            if jl.magnet_infos.is_empty() { jl.magnet_infos = s.magnet_infos; }
+        }
+        return Ok(jl);
+    }
+    util::debug("Falling back to Sukebei only detail");
     fetch_detail_from_sukebei(&code_upper).await
 }
 
@@ -67,15 +134,65 @@ fn looks_like_code(s: &str) -> bool {
     re.is_match(s)
 }
 
+pub async fn top(limit: usize) -> Result<Vec<AvItem>> {
+    // Try multiple ordering pages on JavDB: most recent, trending, etc.
+    let c = client();
+    let mut items: Vec<AvItem> = Vec::new();
+    let endpoints = [
+        format!("{}/videos?o=mr", javdb_base()), // most recent
+        format!("{}/videos?o=tr", javdb_base()), // trending
+    ];
+    let card_sel = Selector::parse(".movie-list .item a.box.cover, .movie-list a[href^='/v/'], a.box[href^='/v/']").unwrap();
+    let title_sel = Selector::parse(".video-title").unwrap();
+    for url in &endpoints {
+        util::debug(format!("JavDB top page: {}", url));
+        let body = c.get(url).send().await?.error_for_status()?.text().await?;
+        let doc = Html::parse_document(&body);
+        for a in doc.select(&card_sel) {
+            let href = a.value().attr("href").unwrap_or("");
+            let title = a.select(&title_sel).next().map(|n| n.text().collect::<String>()).unwrap_or_else(|| a.text().collect::<String>());
+            let code = extract_code_from_title(&title).unwrap_or_else(|| href.split('/').last().unwrap_or("").to_string());
+            if !code.is_empty() && !title.is_empty() {
+                items.push(AvItem { code: code.to_uppercase(), title });
+                if items.len() >= limit { return Ok(items); }
+            }
+        }
+    }
+    Ok(items)
+}
+
 async fn fetch_detail_from_javdb(code: &str) -> Result<AvDetail> {
     let c = client();
-    let url = format!("https://javdb.com/search?q={}&f=all", encode(code));
+    let url = format!("{}/search?q={}&f=all", javdb_base(), encode(code));
+    util::debug(format!("JavDB search: {}", url));
     let body = c.get(&url).send().await?.error_for_status()?.text().await?;
     let doc = Html::parse_document(&body);
-    let card_sel = Selector::parse(".movie-list .item a.box.cover").unwrap();
-    let first = doc.select(&card_sel).next().context("JavDB 未找到该番号")?;
-    let href = first.value().attr("href").context("缺少链接")?;
-    let detail_url = if href.starts_with("http") { href.to_string() } else { format!("https://javdb.com{}", href) };
+    // If search redirected or rendered directly to detail page
+    if doc.select(&Selector::parse(".video-meta-panel").unwrap()).next().is_some() {
+        util::debug("JavDB: search rendered detail page directly");
+        return parse_javdb_detail(&c, &url).await;
+    }
+    // Try several selectors to find the first result link
+    let candidates = [
+        ".movie-list .item a.box.cover",
+        ".movie-list a[href^='/v/']",
+        "a.box[href^='/v/']",
+        "a[href^='/v/']",
+    ];
+    let mut href: Option<String> = None;
+    for sel in candidates {
+        let s = Selector::parse(sel).unwrap();
+        if let Some(a) = doc.select(&s).next() {
+            if let Some(h) = a.value().attr("href") {
+                href = Some(h.to_string());
+                util::debug(format!("JavDB: picked result via selector '{}' => {}", sel, h));
+                break;
+            }
+        }
+    }
+    let href = href.context("JavDB 未找到该番号")?;
+    let detail_url = if href.starts_with("http") { href.to_string() } else { format!("{}{}", javdb_base(), href) };
+    util::debug(format!("JavDB detail: {}", detail_url));
     parse_javdb_detail(&c, &detail_url).await
 }
 
@@ -103,7 +220,7 @@ async fn parse_javdb_detail(c: &reqwest::Client, url: &str) -> Result<AvDetail> 
         if txt.contains('-') && txt.len() == 10 && txt.chars().nth(4) == Some('-') { date = Some(txt); }
     }
 
-    let cover_sel = Selector::parse(".video-cover img").unwrap();
+    let cover_sel = Selector::parse("img.video-cover, .video-cover img").unwrap();
     let mut cover_url = doc
         .select(&cover_sel)
         .next()
@@ -119,13 +236,13 @@ async fn parse_javdb_detail(c: &reqwest::Client, url: &str) -> Result<AvDetail> 
     }
 
     let actor_sel = Selector::parse(".panel-block a[href*='/actors/'], a[href*='/actors/']").unwrap();
-    let actor_names = doc
+    let mut actor_names = doc
         .select(&actor_sel)
         .map(|n| n.text().collect::<String>().trim().to_string())
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>();
 
-    // Init advanced fields before filling
+    // Init advanced fields before filling (must be declared before panel parsing loop)
     let mut duration_minutes: Option<u32> = None;
     let mut director: Option<String> = None;
     let mut studio: Option<String> = None;
@@ -133,6 +250,71 @@ async fn parse_javdb_detail(c: &reqwest::Client, url: &str) -> Result<AvDetail> 
     let mut series: Option<String> = None;
     let mut genres: Vec<String> = Vec::new();
     let mut rating: Option<f32> = None;
+
+    // Parse structured blocks in the movie info panel
+    let block_sel = Selector::parse("nav.panel.movie-panel-info .panel-block").unwrap();
+    let strong_sel = Selector::parse("strong").unwrap();
+    let value_sel = Selector::parse(".value").unwrap();
+    for bl in doc.select(&block_sel) {
+        let label_text = bl
+            .select(&strong_sel)
+            .next()
+            .map(|n| n.text().collect::<String>())
+            .unwrap_or_default()
+            .to_lowercase();
+        let value_node = bl.select(&value_sel).next();
+        let value_text = value_node
+            .as_ref()
+            .map(|n| n.text().collect::<String>().trim().to_string())
+            .unwrap_or_default();
+
+        if label_text.contains("id") && code.is_empty() {
+            let raw = value_text.replace('\n', " ");
+            let raw = raw.trim();
+            if looks_like_code(raw) { code = raw.to_uppercase(); }
+        }
+        if label_text.contains("released") {
+            if !value_text.is_empty() { date = Some(value_text.clone()); }
+        }
+        if label_text.contains("duration") {
+            if let Some(m) = Regex::new(r"(\d{2,3})").unwrap().captures(&value_text).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<u32>().ok()) {
+                duration_minutes = Some(m);
+            }
+        }
+        if label_text.contains("director") {
+            if let Some(a) = value_node.as_ref().and_then(|n| n.select(&Selector::parse("a").unwrap()).next()) {
+                let name = a.text().collect::<String>().trim().to_string();
+                if !name.is_empty() { director = Some(name); }
+            }
+        }
+        if label_text.contains("maker") {
+            if let Some(a) = value_node.as_ref().and_then(|n| n.select(&Selector::parse("a").unwrap()).next()) {
+                let name = a.text().collect::<String>().trim().to_string();
+                if !name.is_empty() { studio = Some(name); }
+            }
+        }
+        if label_text.contains("rating") {
+            if let Some(v) = Regex::new(r"([0-9]+(?:\.[0-9]+)?)").unwrap().captures(&value_text).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<f32>().ok()) {
+                rating = Some(v);
+            }
+        }
+        if label_text.contains("tags") {
+            let tags = value_node
+                .as_ref()
+                .map(|n| n.select(&Selector::parse("a").unwrap()).map(|a| a.text().collect::<String>().trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            if !tags.is_empty() { genres = tags; }
+        }
+        if label_text.contains("actor") {
+            let names = value_node
+                .as_ref()
+                .map(|n| n.select(&Selector::parse("a").unwrap()).map(|a| a.text().collect::<String>().trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            if !names.is_empty() { actor_names = names; }
+        }
+    }
+
+    // Init advanced fields before filling (already declared above)
 
     // Additional named links
     let get_one_text = |selector: &str| -> Option<String> {
@@ -149,7 +331,7 @@ async fn parse_javdb_detail(c: &reqwest::Client, url: &str) -> Result<AvDetail> 
     if let Some(v) = get_one_text("a[href*='/series/']") { series = Some(v); }
 
     let plot_sel = Selector::parse(".panel-block .value pre, .panel-block .value p").unwrap();
-    let plot = doc
+    let mut plot = doc
         .select(&plot_sel)
         .map(|n| n.text().collect::<String>().trim().to_string())
         .find(|s| s.len() > 10);
@@ -258,7 +440,7 @@ async fn parse_javdb_detail(c: &reqwest::Client, url: &str) -> Result<AvDetail> 
 
     // Preview images
     let preview_sel = Selector::parse(".preview-images img, .samples .column img, .tile.is-child img, .sample-box img").unwrap();
-    let preview_images = doc
+    let mut preview_images = doc
         .select(&preview_sel)
         .filter_map(|img| img.value().attr("src"))
         .map(|s| s.to_string())
@@ -266,6 +448,14 @@ async fn parse_javdb_detail(c: &reqwest::Client, url: &str) -> Result<AvDetail> 
 
     let magnets = extract_magnets_from_text(&body);
     let magnet_infos = extract_magnet_infos_from_javdb(&doc, &magnets);
+
+    // Try JSON-LD for richer metadata
+    let (ld_plot, ld_minutes, ld_actors, ld_images, ld_studio) = extract_ld_json_metadata(&doc);
+    if plot.is_none() && ld_plot.is_some() { plot = ld_plot; }
+    if duration_minutes.is_none() { duration_minutes = ld_minutes; }
+    if actor_names.is_empty() && !ld_actors.is_empty() { actor_names = ld_actors; }
+    if preview_images.is_empty() && !ld_images.is_empty() { preview_images = ld_images; }
+    if studio.is_none() && ld_studio.is_some() { studio = ld_studio; }
     Ok(AvDetail {
         code,
         title,
@@ -342,6 +532,9 @@ async fn fetch_detail_from_sukebei(code: &str) -> Result<AvDetail> {
                 seeders,
                 leechers,
                 downloads,
+                resolution: None,
+                codec: None,
+                avg_bitrate_mbps: None,
             };
             // insert if not exists
             let exists = detail.magnet_infos.iter().any(|x| x.url == mi.url);
@@ -399,19 +592,15 @@ async fn parse_sukebei_detail(c: &reqwest::Client, url: &str, code: &str, title_
 
 async fn search_javdb(query: &str) -> Result<Vec<AvItem>> {
     let c = client();
-    let url = format!("https://javdb.com/search?q={}&f=all", encode(query));
+    let url = format!("{}/search?q={}&f=all", javdb_base(), encode(query));
     let body = c.get(&url).send().await?.error_for_status()?.text().await?;
     let doc = Html::parse_document(&body);
-    let card_sel = Selector::parse(".movie-list .item a.box.cover").unwrap();
+    let card_sel = Selector::parse(".movie-list .item a.box.cover, .movie-list a[href^='/v/'], a.box[href^='/v/']").unwrap();
     let title_sel = Selector::parse(".video-title").unwrap();
     let mut items = Vec::new();
     for a in doc.select(&card_sel) {
         let href = a.value().attr("href").unwrap_or("");
-        let title = a
-            .select(&title_sel)
-            .next()
-            .map(|n| n.text().collect::<String>())
-            .unwrap_or_default();
+        let title = a.select(&title_sel).next().map(|n| n.text().collect::<String>()).unwrap_or_else(|| a.text().collect::<String>());
         let code = extract_code_from_title(&title).unwrap_or_else(|| href.split('/').last().unwrap_or("").to_string());
         if !code.is_empty() && !title.is_empty() {
             items.push(AvItem { code: code.to_uppercase(), title });
@@ -441,7 +630,7 @@ async fn search_sukebei(query: &str) -> Result<Vec<AvItem>> {
 
 async fn list_actor_javdb(actor: &str) -> Result<Vec<AvItem>> {
     let c = client();
-    let url = format!("https://javdb.com/search?q={}&f=actor", encode(actor));
+    let url = format!("{}/search?q={}&f=actor", javdb_base(), encode(actor));
     let body = c.get(&url).send().await?.error_for_status()?.text().await?;
     let doc = Html::parse_document(&body);
     let card_sel = Selector::parse(".movie-list .item a.box.cover").unwrap();
@@ -478,21 +667,120 @@ fn extract_magnets_from_text(body: &str) -> Vec<String> {
     re.find_iter(body).map(|m| m.as_str().to_string()).collect()
 }
 
-fn extract_magnet_infos_from_javdb(doc: &Html, magnets: &Vec<String>) -> Vec<MagnetInfo> {
+fn extract_ld_json_metadata(doc: &Html) -> (Option<String>, Option<u32>, Vec<String>, Vec<String>, Option<String>) {
+    let script_sel = Selector::parse("script[type='application/ld+json']").unwrap();
+    for sc in doc.select(&script_sel) {
+        let text = sc.text().collect::<String>();
+        if text.trim().is_empty() { continue; }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+            // Look for VideoObject/Movie schemas
+            let ctx = v.get("@type").and_then(|t| t.as_str()).unwrap_or("");
+            if ctx.eq_ignore_ascii_case("VideoObject") || ctx.eq_ignore_ascii_case("Movie") {
+                let plot = v.get("description").and_then(|x| x.as_str()).map(|s| s.trim().to_string());
+                let duration_minutes = v.get("duration").and_then(|x| x.as_str()).and_then(parse_iso8601_duration_minutes);
+                let actors = v.get("actor").and_then(|x| x.as_array()).map(|arr| {
+                    arr.iter().filter_map(|a| a.get("name").and_then(|n| n.as_str()).map(|s| s.to_string())).collect::<Vec<_>>()
+                }).unwrap_or_default();
+                let images = v.get("image").map(|img| {
+                    if let Some(s) = img.as_str() { vec![s.to_string()] } else if let Some(arr) = img.as_array() { arr.iter().filter_map(|i| i.as_str().map(|s| s.to_string())).collect() } else { vec![] }
+                }).unwrap_or_default();
+                let studio = v.get("productionCompany").and_then(|x| x.get("name")).and_then(|s| s.as_str()).map(|s| s.to_string());
+                return (plot, duration_minutes, actors, images, studio);
+            }
+        }
+    }
+    (None, None, Vec::new(), Vec::new(), None)
+}
+
+fn parse_iso8601_duration_minutes(s: &str) -> Option<u32> {
+    // PT1H40M or PT100M
+    let re = Regex::new(r"^PT(?:(\d+)H)?(?:(\d+)M)?$").ok()?;
+    let caps = re.captures(s)?;
+    let h = caps.get(1).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0);
+    let m = caps.get(2).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0);
+    Some(h * 60 + m)
+}
+fn extract_magnet_infos_from_javdb(_doc: &Html, magnets: &Vec<String>) -> Vec<MagnetInfo> {
     // JavDB may not expose table data for magnets in HTML, so primarily return URLs
     magnets
         .iter()
-        .map(|m| MagnetInfo { url: m.clone(), name: None, size: None, date: None, seeders: None, leechers: None, downloads: None })
+        .map(|m| MagnetInfo { url: m.clone(), name: None, size: None, date: None, seeders: None, leechers: None, downloads: None, resolution: None, codec: None, avg_bitrate_mbps: None })
         .collect()
 }
 
 fn extract_magnet_infos_from_sukebei(doc: &Html, magnets: &Vec<String>) -> Vec<MagnetInfo> {
     // sukebei detail page has a table with info, but mapping rows to magnets can be complex; best-effort
     let mut infos: Vec<MagnetInfo> = Vec::new();
+    // Try to read title to infer resolution/codec/bitrate hints
+    let title = doc
+        .select(&Selector::parse(".torrent-name").unwrap())
+        .next()
+        .map(|n| n.text().collect::<String>())
+        .unwrap_or_default();
+    let res = Regex::new(r"(\d{3,4}p|\d{3,4}x\d{3,4})").ok()
+        .and_then(|re| re.captures(&title)).map(|c| c.get(1).unwrap().as_str().to_string());
+    let codec = Regex::new(r"(H\.264|H\.265|AVC|HEVC|x264|x265)").ok()
+        .and_then(|re| re.captures(&title)).map(|c| c.get(1).unwrap().as_str().to_string());
+    let mut size_text: Option<String> = None;
+    let mut seeders: Option<u32> = None;
+    let mut leechers: Option<u32> = None;
+    let mut downloads: Option<u32> = None;
+    // Table columns often: Category | Name | Link | Size | Date | S | L | C
+    if let Some(row) = doc.select(&Selector::parse("table.torrent-list tbody tr").unwrap()).next() {
+        let tds: Vec<_> = row.select(&Selector::parse("td").unwrap()).collect();
+        size_text = tds.get(3).map(|n| n.text().collect::<String>().trim().to_string());
+        seeders = tds.get(5).and_then(|n| n.text().collect::<String>().trim().parse::<u32>().ok());
+        leechers = tds.get(6).and_then(|n| n.text().collect::<String>().trim().parse::<u32>().ok());
+        downloads = tds.get(7).and_then(|n| n.text().collect::<String>().trim().parse::<u32>().ok());
+    }
+
+    // Try to infer bitrate from size and rough duration if present on the page
+    let mut avg_bitrate_mbps: Option<f32> = None;
+    if let Some(size_s) = size_text.clone() {
+        if let Some((bytes, _unit)) = parse_size_to_bytes(&size_s) {
+            let body_text = doc.root_element().text().collect::<String>();
+            if let Some(dur_min) = Regex::new(r"(\d{2,3})\s*(min|分钟)").ok()
+                .and_then(|re| re.captures(&body_text))
+                .and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<u32>().ok())
+            {
+                let bits = (bytes as f64) * 8.0;
+                let sec = (dur_min as f64) * 60.0;
+                let mbps = bits / sec / 1_000_000.0;
+                avg_bitrate_mbps = Some(mbps as f32);
+            }
+        }
+    }
+
     for m in magnets {
-        infos.push(MagnetInfo { url: m.clone(), name: None, size: None, date: None, seeders: None, leechers: None, downloads: None });
+        infos.push(MagnetInfo {
+            url: m.clone(),
+            name: Some(title.clone()).filter(|s| !s.is_empty()),
+            size: size_text.clone(),
+            date: None,
+            seeders,
+            leechers,
+            downloads,
+            resolution: res.clone(),
+            codec: codec.clone(),
+            avg_bitrate_mbps,
+        });
     }
     infos
+}
+
+fn parse_size_to_bytes(s: &str) -> Option<(u64, String)> {
+    let re = Regex::new(r"([0-9]+(?:\.[0-9]+)?)\s*([KMGT]i?B)").ok()?;
+    let caps = re.captures(s)?;
+    let num: f64 = caps.get(1)?.as_str().parse().ok()?;
+    let unit = caps.get(2)?.as_str().to_uppercase();
+    let mult = match unit.as_str() {
+        "KB" | "KIB" => 1024.0,
+        "MB" | "MIB" => 1024.0_f64.powi(2),
+        "GB" | "GIB" => 1024.0_f64.powi(3),
+        "TB" | "TIB" => 1024.0_f64.powi(4),
+        _ => return None,
+    };
+    Some(((num * mult) as u64, unit))
 }
 
 

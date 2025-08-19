@@ -35,5 +35,8 @@ pub struct MagnetInfo {
     pub seeders: Option<u32>,
     pub leechers: Option<u32>,
     pub downloads: Option<u32>,
+    pub resolution: Option<String>,
+    pub codec: Option<String>,
+    pub avg_bitrate_mbps: Option<f32>,
 }
 

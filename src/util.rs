@@ -7,6 +7,24 @@ use which::which;
 use crate::types::AvItem;
 use crate::types::AvDetail;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static DEBUG: AtomicBool = AtomicBool::new(false);
+
+pub fn set_debug(on: bool) {
+    DEBUG.store(on, Ordering::Relaxed);
+}
+
+pub fn is_debug() -> bool {
+    DEBUG.load(Ordering::Relaxed)
+}
+
+pub fn debug<S: AsRef<str>>(msg: S) {
+    if is_debug() {
+        eprintln!("[DEBUG] {}", msg.as_ref());
+    }
+}
+
 pub fn print_output<T: Serialize + std::fmt::Debug>(value: &T, json: bool) {
     if json {
         match serde_json::to_string_pretty(value) {
@@ -156,11 +174,15 @@ pub fn print_detail_human(detail: &AvDetail) {
     if !detail.magnets.is_empty() {
         println!("磁力： 共{}条", detail.magnets.len());
         for (i, m) in detail.magnet_infos.iter().take(5).enumerate() {
-            if let Some(name) = &m.name {
-                println!("  {}. {}\n     {}", i + 1, name, m.url);
-            } else {
-                println!("  {}. {}", i + 1, m.url);
-            }
+            let mut line = format!("  {}. {}", i + 1, m.url);
+            if let Some(name) = &m.name { line.push_str(&format!("\n     {}", name)); }
+            if let Some(size) = &m.size { line.push_str(&format!(" | {}", size)); }
+            if let Some(res) = &m.resolution { line.push_str(&format!(" | {}", res)); }
+            if let Some(codec) = &m.codec { line.push_str(&format!(" | {}", codec)); }
+            if let Some(b) = m.avg_bitrate_mbps { line.push_str(&format!(" | ~{:.2} Mbps", b)); }
+            if let Some(s) = m.seeders { line.push_str(&format!(" | S:{}", s)); }
+            if let Some(lc) = m.leechers { line.push_str(&format!(" L:{}", lc)); }
+            println!("{}", line);
         }
     }
 }

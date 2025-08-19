@@ -4,13 +4,18 @@ use clap::{Parser, Subcommand};
 mod scraper;
 mod types;
 mod util;
+mod sources;
 
 #[derive(Parser, Debug)]
 #[command(name = "av", version, about = "AV CLI: 搜索、查看与下载番号和演员作品", long_about = None)]
 struct Cli {
     /// 统一输出为 JSON
-    #[arg(long)]
+    #[arg(long, global = true)]
     json: bool,
+
+    /// 输出调试日志
+    #[arg(long, global = true)]
+    debug: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -30,11 +35,15 @@ enum Commands {
 
     /// 搜索演员或番号
     Search { query: String },
+
+    /// 查看最新的番（默认 20 条）
+    Top { #[arg(short, long, default_value_t = 20)] limit: usize },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    util::set_debug(cli.debug);
 
     match cli.command {
         Commands::Install { code } => {
@@ -50,6 +59,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::Detail { code } => {
+            util::debug(format!("detail: fetching {}", code));
             let detail = scraper::fetch_detail(&code).await?;
             if cli.json {
                 util::print_output(&detail, true);
@@ -69,6 +79,15 @@ async fn main() -> Result<()> {
         }
         Commands::Search { query } => {
             let items = scraper::search(&query).await?;
+            if cli.json {
+                util::print_output(&items, true);
+            } else {
+                util::print_items_table(&items);
+            }
+            Ok(())
+        }
+        Commands::Top { limit } => {
+            let items = scraper::top(limit).await?;
             if cli.json {
                 util::print_output(&items, true);
             } else {

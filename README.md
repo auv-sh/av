@@ -54,6 +54,9 @@ av detail FSDSS-351
 # List all codes for an actor (table + total)
 av list 橋本ありな
 
+# Show the latest releases (default 20; use --limit)
+av top --limit 30
+
 # Download (alias of install: get)
 av get FSDSS-351
 ```
@@ -89,6 +92,15 @@ av list <actor> [--json]
 ```
 
 - Lists all codes for an actor; shows a table with total count
+
+### Top (latest releases)
+
+```bash
+av top [--limit N] [--json]
+```
+
+- Lists latest titles from JavDB (most recent first); defaults to 20 items
+- Respects `AV_JAVDB_BASE` / `AV_HTTP_PROXY` / `AV_JAVDB_COOKIE`
 
 ### Install / Get
 
