@@ -17,6 +17,10 @@ struct Cli {
     #[arg(long, global = true)]
     debug: bool,
 
+    /// 只显示无马赛克（基于标题/标签的启发式判断）
+    #[arg(long = "uncen", short = 'u', alias = "nomo", global = true)]
+    uncen: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -69,7 +73,10 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::List { actor } => {
-            let items = scraper::list_actor_titles(&actor).await?;
+            let mut items = scraper::list_actor_titles(&actor).await?;
+            if cli.uncen {
+                items.retain(|i| util::looks_uncensored(&i.title));
+            }
             if cli.json {
                 util::print_output(&items, true);
             } else {
@@ -78,7 +85,10 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::Search { query } => {
-            let items = scraper::search(&query).await?;
+            let mut items = scraper::search(&query).await?;
+            if cli.uncen {
+                items.retain(|i| util::looks_uncensored(&i.title));
+            }
             if cli.json {
                 util::print_output(&items, true);
             } else {
@@ -87,7 +97,10 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::Top { limit } => {
-            let items = scraper::top(limit).await?;
+            let mut items = scraper::top(limit).await?;
+            if cli.uncen {
+                items.retain(|i| util::looks_uncensored(&i.title));
+            }
             if cli.json {
                 util::print_output(&items, true);
             } else {

@@ -129,6 +129,23 @@ pub fn print_items_table(items: &[AvItem]) {
     }
 }
 
+pub fn looks_uncensored(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    let keywords = [
+        "uncensored",
+        "uncensored leak",
+        "uncensored crack",
+        "無修正",
+        "无码",
+        "無碼",
+        "無修正流出",
+        "無碼流出",
+        "无码流出",
+        "无修正",
+    ];
+    keywords.iter().any(|k| lower.contains(&k.to_lowercase()))
+}
+
 pub fn print_detail_human(detail: &AvDetail) {
     println!("番号： {}", detail.code.bold());
     println!("标题： {}", detail.title);

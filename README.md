@@ -57,6 +57,11 @@ av list 橋本ありな
 # Show the latest releases (default 20; use --limit)
 av top --limit 30
 
+# Only show uncensored entries (works with search/list/top)
+av search 三上悠亞 --uncen
+av list 橋本ありな -u
+av top --limit 30 --uncen
+
 # Download (alias of install: get)
 av get FSDSS-351
 ```
@@ -71,6 +76,7 @@ av search <keyword> [--json]
 
 - Supports both actor names and codes
 - Non-JSON uses a table: `# / Code / Title`, with a total count on top
+- Supports uncensored-only filter: `--uncen` (alias `-u`)
 
 ### Detail
 
@@ -92,6 +98,7 @@ av list <actor> [--json]
 ```
 
 - Lists all codes for an actor; shows a table with total count
+- Supports uncensored-only filter: `--uncen` (alias `-u`)
 
 ### Top (latest releases)
 
@@ -101,6 +108,7 @@ av top [--limit N] [--json]
 
 - Lists latest titles from JavDB (most recent first); defaults to 20 items
 - Respects `AV_JAVDB_BASE` / `AV_HTTP_PROXY` / `AV_JAVDB_COOKIE`
+- Supports uncensored-only filter: `--uncen` (alias `-u`)
 
 ### Install / Get
 
