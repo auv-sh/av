@@ -2,7 +2,7 @@
 
 An extremely handy AV search and downloader, written in Rust.
 
-受 [astral-sh/uv](https://github.com/astral-sh/uv) 的 README 风格启发。
+受 [astral-sh/uv](https://github.com/astral-sh/uv) 启发。
 
 ## Highlights
 
