@@ -76,6 +76,10 @@ av actors --uncen --page 3 -n 30
 
 # Download (alias of install: get)
 av get FSDSS-351
+
+# Open in browser to watch
+av view FSDSS-351
+av see FSDSS-351    # alias of view
 ```
 
 ## Features
@@ -142,6 +146,17 @@ av get <code>        # alias of install
 
 - Automatically selects magnets (preferring higher seeders)
 - Uses `aria2c` if available; otherwise falls back to the system default BT client
+
+### View / See
+
+```bash
+av view <code>
+av see <code>    # alias of view
+```
+
+- Opens the video in your default browser
+- Requires `AV_JAVDB_COOKIE` environment variable for full access
+- Finds the "Watch Full Movie" link from JavDB
 
 ## Output
 

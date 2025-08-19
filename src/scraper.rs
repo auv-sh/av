@@ -197,6 +197,56 @@ async fn fetch_detail_from_javdb(code: &str) -> Result<AvDetail> {
     parse_javdb_detail(&c, &detail_url).await
 }
 
+pub async fn get_play_url(code: &str) -> Result<String> {
+    let c = client();
+    let url = format!("{}/search?q={}&f=all", javdb_base(), encode(code));
+    util::debug(format!("JavDB search for play: {}", url));
+    let body = c.get(&url).send().await?.error_for_status()?.text().await?;
+    let doc = Html::parse_document(&body);
+    
+    // If search redirected or rendered directly to detail page
+    let play_sel = Selector::parse(".cover-container[href*='play'], a.cover-container[href*='play'], a[href*='play']").unwrap();
+    if let Some(play) = doc.select(&play_sel).next().and_then(|a| a.value().attr("href")) {
+        let play_url = if play.starts_with("http") { play.to_string() } else { format!("{}{}", javdb_base(), play) };
+        util::debug(format!("JavDB play URL: {}", play_url));
+        return Ok(play_url);
+    }
+    
+    // Try to get detail page first, then look for play link
+    let candidates = [
+        ".movie-list .item a.box.cover",
+        ".movie-list a[href^='/v/']",
+        "a.box[href^='/v/']",
+        "a[href^='/v/']",
+    ];
+    let mut href: Option<String> = None;
+    for sel in candidates {
+        let s = Selector::parse(sel).unwrap();
+        if let Some(a) = doc.select(&s).next() {
+            if let Some(h) = a.value().attr("href") {
+                href = Some(h.to_string());
+                break;
+            }
+        }
+    }
+    
+    if let Some(href) = href {
+        let detail_url = if href.starts_with("http") { href } else { format!("{}{}", javdb_base(), href) };
+        let detail_body = c.get(&detail_url).send().await?.error_for_status()?.text().await?;
+        let detail_doc = Html::parse_document(&detail_body);
+        
+        // Look for play button on detail page
+        if let Some(play) = detail_doc.select(&play_sel).next().and_then(|a| a.value().attr("href")) {
+            let play_url = if play.starts_with("http") { play.to_string() } else { format!("{}{}", javdb_base(), play) };
+            util::debug(format!("JavDB play URL from detail: {}", play_url));
+            return Ok(play_url);
+        }
+    }
+    
+    // Fallback: just return the search URL
+    Ok(url)
+}
+
 async fn parse_javdb_detail(c: &reqwest::Client, url: &str) -> Result<AvDetail> {
     let body = c.get(url).send().await?.error_for_status()?.text().await?;
     let doc = Html::parse_document(&body);

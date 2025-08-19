@@ -45,6 +45,10 @@ enum Commands {
 
     /// 演员热度排行榜（分页）
     Actors { #[arg(short, long, default_value_t = 1)] page: usize, #[arg(short='n', long, default_value_t = 50)] per_page: usize },
+
+    /// 在浏览器中打开观看视频
+    #[command(alias = "see")]
+    View { code: String },
 }
 
 #[tokio::main]
@@ -118,6 +122,13 @@ async fn main() -> Result<()> {
             } else {
                 util::print_actors_table(&actors, page, per_page, total);
             }
+            Ok(())
+        }
+        Commands::View { code } => {
+            util::debug(format!("view: finding play URL for {}", code));
+            let play_url = scraper::get_play_url(&code).await?;
+            println!("Opening browser to watch: {}", play_url);
+            util::open_browser_url(&play_url).await?;
             Ok(())
         }
     }

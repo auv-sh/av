@@ -91,6 +91,10 @@ pub async fn download_magnet(magnet: &str) -> Result<()> {
     }
 }
 
+pub async fn open_browser_url(url: &str) -> Result<()> {
+    open_system_uri(url).await
+}
+
 pub fn print_items_table(items: &[AvItem]) {
     println!("{} {}", "共".bold(), items.len());
 
