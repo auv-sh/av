@@ -1,10 +1,18 @@
 # av
 
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)
+[![GitHub release](https://img.shields.io/github/release/auv-sh/av.svg)](https://github.com/auv-sh/av/releases)
+
 An extremely handy AV searcher and downloader, written in Rust.
 
 Inspired by the style of [astral-sh/uv](https://github.com/astral-sh/uv).
 
 ## Highlights
+
+[![Build Status](https://img.shields.io/github/actions/workflow/status/auv-sh/av/release.yml?branch=main)](https://github.com/auv-sh/av/actions)
+[![GitHub Stars](https://img.shields.io/github/stars/auv-sh/av?style=social)](https://github.com/auv-sh/av)
 
 - 🚀 One tool for search, details, listing, and downloading
 - ⚡️ Async scraping for fast responses (JavDB first, Sukebei as fallback and magnet merge)
@@ -144,12 +152,17 @@ av get <code>        # alias of install
 
 ## Data sources
 
+[![JavDB](https://img.shields.io/badge/JavDB-primary-red.svg)](https://javdb.com)
+[![Sukebei](https://img.shields.io/badge/Sukebei-magnets-orange.svg)](https://sukebei.nyaa.si)
+
 - Details and search: JavDB (preferred)
 - Magnets and fallback: Sukebei (merge magnet details when possible)
 
 Note: field availability depends on page structure and visibility; it may vary by region, mirror, or anti-bot measures.
 
 ## Platform support
+
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)
 
 Verified on macOS / Linux. For Windows, download the zip artifact from Releases.
 
@@ -158,5 +171,7 @@ Verified on macOS / Linux. For Windows, download the zip artifact from Releases.
 - README organization inspired by [astral-sh/uv](https://github.com/astral-sh/uv)
 
 ## License / Disclaimer
+
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 For learning and research purposes only. Use at your own risk and follow local laws and site terms.
