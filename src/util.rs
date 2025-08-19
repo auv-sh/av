@@ -1,0 +1,167 @@
+use anyhow::{bail, Context, Result};
+use colored::*;
+use serde::Serialize;
+use std::process::Stdio;
+use which::which;
+
+use crate::types::AvItem;
+use crate::types::AvDetail;
+
+pub fn print_output<T: Serialize + std::fmt::Debug>(value: &T, json: bool) {
+    if json {
+        match serde_json::to_string_pretty(value) {
+            Ok(s) => println!("{}", s),
+            Err(_) => println!("{:?}", value),
+        }
+    } else {
+        println!("{:?}", value);
+    }
+}
+
+pub async fn download_via_aria2(magnet: &str) -> Result<()> {
+    if which("aria2c").is_err() {
+        bail!("未检测到 aria2c，请先安装: brew install aria2");
+    }
+
+    let mut cmd = tokio::process::Command::new("aria2c");
+    cmd.arg("--seed-time=0").arg(magnet).stdin(Stdio::null());
+
+    let status = cmd.status().await.context("启动 aria2c 失败")?;
+    if !status.success() {
+        bail!("aria2c 下载失败，退出码: {:?}", status.code());
+    }
+    println!("{} {}", "下载完成".green().bold(), magnet);
+    Ok(())
+}
+
+pub async fn open_system_uri(uri: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = tokio::process::Command::new("open");
+        c.arg(uri);
+        c
+    };
+
+    #[cfg(target_os = "linux")]
+    let mut cmd = {
+        let mut c = tokio::process::Command::new("xdg-open");
+        c.arg(uri);
+        c
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg("start").arg("").arg(uri);
+        c
+    };
+
+    let status = cmd.status().await.context("调用系统打开 URI 失败")?;
+    if !status.success() {
+        bail!("系统无法打开: {}", uri);
+    }
+    println!("{} {}", "已交给系统默认的 BT 客户端处理".green().bold(), uri);
+    Ok(())
+}
+
+pub async fn download_magnet(magnet: &str) -> Result<()> {
+    if which("aria2c").is_ok() {
+        download_via_aria2(magnet).await
+    } else {
+        open_system_uri(magnet).await
+    }
+}
+
+pub fn print_items_table(items: &[AvItem]) {
+    println!("{} {}", "共".bold(), items.len());
+
+    let index_header = "#";
+    let code_header = "番号";
+    let title_header = "标题";
+
+    let index_width = std::cmp::max(index_header.len(), format!("{}", items.len()).len());
+    let code_width = std::cmp::max(
+        code_header.len(),
+        items.iter().map(|i| i.code.len()).max().unwrap_or(0),
+    );
+
+    println!(
+        "{:<iw$}  {:<cw$}  {}",
+        index_header.bold(),
+        code_header.bold(),
+        title_header.bold(),
+        iw = index_width,
+        cw = code_width
+    );
+
+    let sep_i = "-".repeat(index_width);
+    let sep_c = "-".repeat(code_width);
+    println!("{:<iw$}  {:<cw$}  {}", sep_i, sep_c, "-".repeat(10), iw = index_width, cw = code_width);
+
+    for (idx, item) in items.iter().enumerate() {
+        let row_index = idx + 1;
+        println!(
+            "{:<iw$}  {:<cw$}  {}",
+            row_index,
+            item.code,
+            item.title,
+            iw = index_width,
+            cw = code_width
+        );
+    }
+}
+
+pub fn print_detail_human(detail: &AvDetail) {
+    println!("番号： {}", detail.code.bold());
+    println!("标题： {}", detail.title);
+    if !detail.actor_names.is_empty() {
+        println!("演员： {}", detail.actor_names.join(", "));
+    }
+    if let Some(date) = &detail.release_date {
+        println!("发行： {}", date);
+    }
+    if let Some(cover) = &detail.cover_url {
+        println!("封面： {}", cover);
+    }
+    if let Some(mins) = detail.duration_minutes {
+        println!("时长： {} 分钟", mins);
+    }
+    if let Some(dir) = &detail.director {
+        println!("导演： {}", dir);
+    }
+    if let Some(studio) = &detail.studio {
+        println!("片商： {}", studio);
+    }
+    if let Some(label) = &detail.label {
+        println!("厂牌： {}", label);
+    }
+    if let Some(series) = &detail.series {
+        println!("系列： {}", series);
+    }
+    if !detail.genres.is_empty() {
+        println!("类别： {}", detail.genres.join(", "));
+    }
+    if let Some(r) = detail.rating {
+        println!("评分： {}", r);
+    }
+    if let Some(plot) = &detail.plot {
+        println!("剧情：\n{}", plot);
+    }
+    if !detail.preview_images.is_empty() {
+        println!("预览图：");
+        for (i, url) in detail.preview_images.iter().enumerate() {
+            println!("  {}. {}", i + 1, url);
+        }
+    }
+    if !detail.magnets.is_empty() {
+        println!("磁力： 共{}条", detail.magnets.len());
+        for (i, m) in detail.magnet_infos.iter().take(5).enumerate() {
+            if let Some(name) = &m.name {
+                println!("  {}. {}\n     {}", i + 1, name, m.url);
+            } else {
+                println!("  {}. {}", i + 1, m.url);
+            }
+        }
+    }
+}
+
