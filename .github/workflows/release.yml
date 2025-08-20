@@ -42,13 +42,44 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install musl-tools (for musl target)
+      - name: Install musl-tools and OpenSSL for musl target
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools
+          sudo apt-get install -y musl-tools musl-dev
+          # Install cross-compilation tools for OpenSSL
+          sudo apt-get install -y pkg-config libssl-dev
 
-      - name: Build
+          # Create a directory for musl OpenSSL
+          mkdir -p /tmp/musl-openssl
+
+          # Download and compile OpenSSL for musl
+          cd /tmp/musl-openssl
+          wget https://www.openssl.org/source/openssl-3.0.8.tar.gz
+          tar xzf openssl-3.0.8.tar.gz
+          cd openssl-3.0.8
+
+          # Configure and compile OpenSSL for musl
+          CC="musl-gcc -fPIC" ./Configure no-shared no-async --prefix=/usr/local/musl --openssldir=/usr/local/musl/ssl linux-x86_64
+          make -j$(nproc)
+          sudo make install_sw
+
+          # Return to the original directory
+          cd $GITHUB_WORKSPACE
+
+      - name: Build (non-musl targets)
+        if: matrix.target != 'x86_64-unknown-linux-musl'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (musl target)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        env:
+          OPENSSL_DIR: /usr/local/musl
+          OPENSSL_INCLUDE_DIR: /usr/local/musl/include
+          OPENSSL_LIB_DIR: /usr/local/musl/lib
+          PKG_CONFIG_ALLOW_CROSS: "1"
+          PKG_CONFIG_PATH: /usr/local/musl/lib/pkgconfig
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare package (unix)

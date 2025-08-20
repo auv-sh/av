@@ -6,8 +6,10 @@ use which::which;
 use std::env;
 use std::fs;
 use std::io::Write;
-
 use std::fs::File;
+
+// Unix-specific imports
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use crate::types::AvItem;
@@ -120,9 +122,14 @@ pub async fn self_update() -> Result<()> {
     file.write_all(script_content.as_bytes()).context("写入安装脚本内容失败")?;
     
     // 设置执行权限
-    let mut perms = fs::metadata(&installer_path).context("获取文件权限失败")?.permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&installer_path, perms).context("设置执行权限失败")?;
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&installer_path).context("获取文件权限失败")?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&installer_path, perms).context("设置执行权限失败")?;
+    }
+    
+    // Windows doesn't need explicit permission setting for execution
     
     // 获取当前可执行文件路径
     let _current_exe = env::current_exe().context("无法确定当前可执行文件路径")?;
@@ -130,11 +137,32 @@ pub async fn self_update() -> Result<()> {
     // 执行安装脚本
     println!("执行安装脚本...");
     
+    #[cfg(unix)]
     let status = tokio::process::Command::new("sh")
         .arg(&installer_path)
         .status()
         .await
         .context("执行安装脚本失败")?;
+        
+    #[cfg(windows)]
+    let status = {
+        // Windows 需要使用 PowerShell 或 cmd 来执行脚本
+        // 首先将 .sh 脚本内容转换为 .ps1 脚本
+        let ps_path = tmpdir.path().join("install.ps1");
+        let ps_content = script_content.replace("\r\n", "\n").replace("\n", "\r\n");
+        let mut ps_file = File::create(&ps_path).context("创建 PowerShell 脚本文件失败")?;
+        ps_file.write_all(ps_content.as_bytes()).context("写入 PowerShell 脚本内容失败")?;
+        
+        // 使用 PowerShell 执行脚本
+        tokio::process::Command::new("powershell")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-File")
+            .arg(&ps_path)
+            .status()
+            .await
+            .context("执行安装脚本失败")?
+    };
     
     if status.success() {
         println!("{}", "更新成功！".green().bold());
