@@ -47,8 +47,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools musl-dev
-          # Install cross-compilation tools for OpenSSL
-          sudo apt-get install -y pkg-config libssl-dev
+          # Install cross-compilation tools for OpenSSL and Linux headers
+          sudo apt-get install -y pkg-config libssl-dev linux-libc-dev
 
           # Create a directory for musl OpenSSL
           mkdir -p /tmp/musl-openssl
@@ -59,8 +59,8 @@ jobs:
           tar xzf openssl-3.0.8.tar.gz
           cd openssl-3.0.8
 
-          # Configure and compile OpenSSL for musl
-          CC="musl-gcc -fPIC" ./Configure no-shared no-async --prefix=/usr/local/musl --openssldir=/usr/local/musl/ssl linux-x86_64
+          # Configure and compile OpenSSL for musl with specific options to avoid Linux headers
+          CC="musl-gcc -fPIC" ./Configure no-shared no-async no-secure-memory --prefix=/usr/local/musl --openssldir=/usr/local/musl/ssl linux-x86_64
           make -j$(nproc)
           sudo make install_sw
 
