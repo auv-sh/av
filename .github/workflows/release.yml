@@ -42,45 +42,40 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install musl-tools and OpenSSL for musl target
+      - name: Build musl target in Alpine Docker container
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools musl-dev
-          # Install cross-compilation tools for OpenSSL and Linux headers
-          sudo apt-get install -y pkg-config libssl-dev linux-libc-dev
+          # Create a Docker script
+          cat > build-musl.sh << 'EOF'
+          #!/bin/sh
+          set -ex
 
-          # Create a directory for musl OpenSSL
-          mkdir -p /tmp/musl-openssl
+          # Install build dependencies
+          apk add --no-cache build-base curl git openssl-dev openssl-libs-static pkgconfig rust cargo
 
-          # Download and compile OpenSSL for musl
-          cd /tmp/musl-openssl
-          wget https://www.openssl.org/source/openssl-3.0.8.tar.gz
-          tar xzf openssl-3.0.8.tar.gz
-          cd openssl-3.0.8
+          # Clone the repository
+          git clone /github/workspace /build
+          cd /build
 
-          # Configure and compile OpenSSL for musl with specific options to avoid Linux headers
-          CC="musl-gcc -fPIC" ./Configure no-shared no-async no-secure-memory --prefix=/usr/local/musl --openssldir=/usr/local/musl/ssl linux-x86_64
-          make -j$(nproc)
-          sudo make install_sw
+          # Build the project
+          cargo build --release --target=x86_64-unknown-linux-musl
 
-          # Return to the original directory
-          cd $GITHUB_WORKSPACE
+          # Copy the binary back to the workspace
+          mkdir -p /github/workspace/target/x86_64-unknown-linux-musl/release/
+          cp target/x86_64-unknown-linux-musl/release/av /github/workspace/target/x86_64-unknown-linux-musl/release/
+          EOF
+
+          # Make the script executable
+          chmod +x build-musl.sh
+
+          # Run the build in Alpine container
+          docker run --rm -v $GITHUB_WORKSPACE:/github/workspace -w /github/workspace alpine:latest sh -c "./build-musl.sh"
 
       - name: Build (non-musl targets)
         if: matrix.target != 'x86_64-unknown-linux-musl'
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Build (musl target)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        env:
-          OPENSSL_DIR: /usr/local/musl
-          OPENSSL_INCLUDE_DIR: /usr/local/musl/include
-          OPENSSL_LIB_DIR: /usr/local/musl/lib
-          PKG_CONFIG_ALLOW_CROSS: "1"
-          PKG_CONFIG_PATH: /usr/local/musl/lib/pkgconfig
-          RUSTFLAGS: "-C target-feature=+crt-static"
-        run: cargo build --release --target ${{ matrix.target }}
+      # Build for musl target is now handled by the Alpine Docker container step
 
       - name: Prepare package (unix)
         if: matrix.archive == 'tar.gz'
