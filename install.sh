@@ -64,7 +64,16 @@ target_triple() {
   os="$1"; arch="$2"
   case "$os" in
     linux)
-      if [ "$arch" = "x86_64" ]; then echo "x86_64-unknown-linux-gnu"; else err "no binary for $arch on Linux"; fi ;;
+      if [ "$arch" = "x86_64" ]; then
+        # Check if we're on Alpine Linux or other musl-based distro
+        if [ -f "/etc/alpine-release" ] || ldd --version 2>&1 | grep -q "musl"; then
+          echo "x86_64-unknown-linux-musl"
+        else
+          echo "x86_64-unknown-linux-gnu"
+        fi
+      else 
+        err "no binary for $arch on Linux"
+      fi ;;
     macos)
       if [ "$arch" = "aarch64" ]; then echo "aarch64-apple-darwin"; else err "no binary for $arch on macOS"; fi ;;
     *) err "unsupported combo" ;;

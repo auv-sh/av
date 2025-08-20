@@ -163,10 +163,10 @@ av see <code>    # alias of view
 - Requires `AV_JAVDB_COOKIE` environment variable for full access
 - Finds the "Watch Full Movie" link from JavDB
 
-### Self-Update
+### Update
 
 ```bash
-av self-update
+av update
 ```
 
 - Updates the tool to the latest version
@@ -194,8 +194,16 @@ Note: field availability depends on page structure and visibility; it may vary b
 ## Platform support
 
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)
+[![Alpine Linux](https://img.shields.io/badge/Alpine%20Linux-Ready-blue.svg)](#platform-support)
 
-Verified on macOS / Linux. For Windows, download the zip artifact from Releases.
+Verified on:
+
+- macOS (Apple Silicon)
+- Linux (glibc-based distributions)
+- Linux (musl-based distributions like Alpine Linux)
+- Windows
+
+The installer automatically detects your system and downloads the appropriate binary. For Alpine Linux and other musl-based distributions, a statically linked binary is provided.
 
 ## Acknowledgements
 
