@@ -3,6 +3,12 @@ use colored::*;
 use serde::Serialize;
 use std::process::Stdio;
 use which::which;
+use std::env;
+use std::fs;
+use std::io::Write;
+
+use std::fs::File;
+use std::os::unix::fs::PermissionsExt;
 
 use crate::types::AvItem;
 use crate::types::AvDetail;
@@ -93,6 +99,50 @@ pub async fn download_magnet(magnet: &str) -> Result<()> {
 
 pub async fn open_browser_url(url: &str) -> Result<()> {
     open_system_uri(url).await
+}
+
+pub async fn self_update() -> Result<()> {
+    println!("正在检查更新...");
+    
+    // 创建临时目录
+    let tmpdir = tempfile::tempdir().context("无法创建临时目录")?;
+    let installer_path = tmpdir.path().join("install.sh");
+    
+    // 下载安装脚本
+    let install_script_url = "https://raw.github.com/auv-sh/av/master/install.sh";
+    println!("下载安装脚本: {}", install_script_url);
+    
+    let response = reqwest::get(install_script_url).await.context("下载安装脚本失败")?;
+    let script_content = response.text().await.context("读取安装脚本内容失败")?;
+    
+    // 写入安装脚本到临时文件
+    let mut file = File::create(&installer_path).context("创建临时安装脚本文件失败")?;
+    file.write_all(script_content.as_bytes()).context("写入安装脚本内容失败")?;
+    
+    // 设置执行权限
+    let mut perms = fs::metadata(&installer_path).context("获取文件权限失败")?.permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&installer_path, perms).context("设置执行权限失败")?;
+    
+    // 获取当前可执行文件路径
+    let _current_exe = env::current_exe().context("无法确定当前可执行文件路径")?;
+    
+    // 执行安装脚本
+    println!("执行安装脚本...");
+    
+    let status = tokio::process::Command::new("sh")
+        .arg(&installer_path)
+        .status()
+        .await
+        .context("执行安装脚本失败")?;
+    
+    if status.success() {
+        println!("{}", "更新成功！".green().bold());
+    } else {
+        bail!("安装脚本执行失败，退出码: {:?}", status.code());
+    }
+    
+    Ok(())
 }
 
 pub fn print_items_table(items: &[AvItem]) {

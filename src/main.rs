@@ -28,14 +28,14 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// 下载该番号对应的视频（磁力）
-    #[command(alias = "get")]
+    #[command(visible_alias = "get")]
     Install { code: String },
 
     /// 展示该番号的详细信息
     Detail { code: String },
 
     /// 列出该演员的所有番号
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List { actor: String },
 
     /// 搜索演员或番号
@@ -48,8 +48,12 @@ enum Commands {
     Actors { #[arg(short, long, default_value_t = 1)] page: usize, #[arg(short='n', long, default_value_t = 50)] per_page: usize },
 
     /// 在浏览器中打开观看视频
-    #[command(alias = "see")]
+    #[command(visible_alias = "see")]
     View { code: String },
+
+    /// 自动更新到最新版本
+    #[command(name = "update", visible_alias = "self-update")]
+    SelfUpdate,
 }
 
 #[tokio::main]
@@ -130,6 +134,10 @@ async fn main() -> Result<()> {
             let play_url = scraper::get_play_url(&code).await?;
             println!("Opening browser to watch: {}", play_url);
             util::open_browser_url(&play_url).await?;
+            Ok(())
+        }
+        Commands::SelfUpdate => {
+            util::self_update().await?;
             Ok(())
         }
     }

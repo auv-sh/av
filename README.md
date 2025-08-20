@@ -81,6 +81,9 @@ av get FSDSS-351
 # Open in browser to watch
 av view FSDSS-351
 av see FSDSS-351    # alias of view
+
+# Update to the latest version
+av update
 ```
 
 ## Features
@@ -159,6 +162,17 @@ av see <code>    # alias of view
 - Opens the video in your default browser
 - Requires `AV_JAVDB_COOKIE` environment variable for full access
 - Finds the "Watch Full Movie" link from JavDB
+
+### Self-Update
+
+```bash
+av self-update
+```
+
+- Updates the tool to the latest version
+- Downloads the installer script from GitHub
+- Automatically installs the latest release
+- Preserves your current installation path
 
 ## Output
 
