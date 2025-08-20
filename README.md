@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)
 [![GitHub release](https://img.shields.io/github/release/auv-sh/av.svg)](https://github.com/auv-sh/av/releases)
 
-An extremely handy AV searcher and downloader, written in Rust.
+An extremely handy AV searcher and downloader, written in Rust. A gift to my bro Mr.Fu
 
 Inspired by the style of [astral-sh/uv](https://github.com/astral-sh/uv).
 
@@ -61,6 +61,7 @@ av detail FSDSS-351
 
 # List all codes for an actor (table + total)
 av list 橋本ありな
+av ls 橋本ありな    # alias of list
 
 # Show the latest releases (default 20; use --limit)
 av top --limit 30
@@ -107,10 +108,11 @@ Displays when available:
 - Preview images
 - Magnet count and a few sample links
 
-### List
+### List / Ls
 
 ```bash
 av list <actor> [--json]
+av ls <actor> [--json]    # alias of list
 ```
 
 - Lists all codes for an actor; shows a table with total count

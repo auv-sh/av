@@ -35,6 +35,7 @@ enum Commands {
     Detail { code: String },
 
     /// 列出该演员的所有番号
+    #[command(alias = "ls")]
     List { actor: String },
 
     /// 搜索演员或番号
